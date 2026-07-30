@@ -1,9 +1,15 @@
-"""Zero-dependency popup TUI for picking a closed tab to reopen.
+"""Zero-dependency popup TUI for picking a closed tab or pane to reopen.
 
 Runs as the `picker` popup pane's command (the `pick` subcommand). A popup
 pane is session-modal and closes when its command exits, so this simply
 runs a small raw-mode loop on /dev/tty-equivalent stdin and exits once a
 choice (or a cancel) is made.
+
+The row helpers here are also what the plain `list` subcommand prints, so a
+row reads the same in both places. One stack holds both kinds of entry, so
+every row leads with its kind: a tab row is named by its tab label, a pane
+row by the pane's own label (or its cwd's basename, since panes usually have
+no label) plus the tab it belongs to.
 """
 
 import os
@@ -14,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from . import store
 from .api import HerdrApi
-from .restore import reopen_at
+from .restore import PaneTabGone, reopen_at
 
 try:
     import termios
@@ -44,17 +50,59 @@ def _row_key(index):
     return "0" if index == 9 else str(index + 1)
 
 
-def row_label(index, record, now_ms):
-    # type: (int, Dict[str, Any], int) -> str
+def pane_name(label, cwd, fallback="pane"):
+    # type: (Optional[str], Optional[str], str) -> str
+    """A human name for a pane: its label, else its cwd's basename, else the
+    fallback. Panes are usually unlabelled, so the basename is what a user
+    actually recognises."""
+    if label:
+        return label
+    base = os.path.basename((cwd or "").rstrip("/"))
+    return base or fallback
+
+
+def row_kind(record):
+    # type: (Dict[str, Any]) -> str
+    return store.entry_kind(record)
+
+
+def row_title(record):
+    # type: (Dict[str, Any]) -> str
+    if store.entry_kind(record) == "pane":
+        name = pane_name(record.get("label"), record.get("cwd"), record.get("pane_id") or "pane")
+        return "%s in %s" % (name, record.get("tab_label") or "?")
+    return record.get("label") or ""
+
+
+def row_detail(record):
+    # type: (Dict[str, Any]) -> str
+    """The kind-specific column: how big a tab was, or how a pane was split.
+
+    The split ratio is deliberately left out - it would push the row past 80
+    columns, and `list --json` has it for anyone who needs the exact number.
+    """
+    if store.entry_kind(record) == "pane":
+        parent = record.get("parent")
+        if not isinstance(parent, dict):
+            parent = {}
+        return "split:%-6s agent:%s" % (
+            (parent.get("direction") or "?")[:6],
+            record.get("agent") or "-",
+        )
+
     panes = record.get("panes", [])
     agent_kinds = sorted({p.get("agent") for p in panes if p.get("agent")})
-    agents_txt = ",".join(agent_kinds) if agent_kinds else "-"
-    return "%s. %-20s %-12s panes:%-2d agents:%-10s %s" % (
+    return "panes:%-2d agents:%s" % (len(panes), ",".join(agent_kinds) if agent_kinds else "-")
+
+
+def row_label(index, record, now_ms):
+    # type: (int, Dict[str, Any], int) -> str
+    return "%s. %-4s %-22s %-10s %-26s %s" % (
         _row_key(index),
-        (record.get("label") or "")[:20],
-        (record.get("workspace_label") or "")[:12],
-        len(panes),
-        agents_txt,
+        row_kind(record),
+        row_title(record)[:22],
+        (record.get("workspace_label") or "")[:10],
+        row_detail(record)[:26],
         format_age(now_ms, record.get("closed_ms", now_ms)),
     )
 
@@ -62,7 +110,7 @@ def row_label(index, record, now_ms):
 def render_lines(closed, selected, now_ms):
     # type: (List[Dict[str, Any]], int, int) -> List[str]
     lines = [
-        "Reopen closed tab  (up/down or 1-9,0 select, enter restores, q cancels)",
+        "Reopen closed tab or pane  (up/down or 1-9,0 select, enter restores, q cancels)",
         "",
     ]
     for i, record in enumerate(closed[:10]):
@@ -163,7 +211,17 @@ def run_picker(state_dir, api, config, env_workspace_id):
     if result_index is None:
         return 0
 
-    result = reopen_at(api, state_dir, config, env_workspace_id, index=result_index)
-    if result is not None:
+    try:
+        result = reopen_at(api, state_dir, config, env_workspace_id, index=result_index)
+    except PaneTabGone:
+        # The popup is about to close, so this is the only chance to say why.
+        print("Cannot reopen that pane: its tab is gone")
+        return 1
+
+    if result is None:
+        return 0
+    if result.get("kind") == "pane":
+        print("Reopened pane %s" % pane_name(result.get("label"), result.get("cwd")))
+    else:
         print("Reopened %s" % result.get("label", ""))
     return 0

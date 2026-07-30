@@ -2,7 +2,15 @@
 
 State lives at $HERDR_PLUGIN_STATE_DIR/state.json:
 
-    {"version": 1, "index": {"<tab_id>": <record>}, "closed": [<record>, ...]}
+    {"version": 2, "index": {"<tab_id>": <record>}, "closed": [<record>, ...]}
+
+Version 2 added closed-pane entries, so `closed` is no longer homogeneous:
+entries are discriminated by "kind" ("tab" or "pane"). A version 1 file has
+no "kind" at all and every entry in it is a tab, which is why readers must
+treat a missing "kind" as "tab" instead of rejecting the entry - real users
+have a populated stack and upgrading the plugin must not throw it away.
+`closed` is one stack across both kinds, ordered newest death first, so
+max_entries is a single shared budget and not one budget per kind.
 
 Several event hooks can run concurrently, so every read-modify-write cycle
 must happen while holding an exclusive fcntl.flock on a sibling state.lock.
@@ -21,12 +29,24 @@ from typing import Any, Dict, Iterator
 
 STATE_FILENAME = "state.json"
 LOCK_FILENAME = "state.lock"
-STATE_VERSION = 1
+STATE_VERSION = 2
 
 
 def default_state():
     # type: () -> Dict[str, Any]
     return {"version": STATE_VERSION, "index": {}, "closed": []}
+
+
+def entry_kind(entry):
+    # type: (Dict[str, Any]) -> str
+    """Kind of a `closed` entry: "pane" or "tab".
+
+    A version 1 state file has no "kind" key, and every entry it holds is a
+    closed tab, so anything that is not explicitly "pane" reads as "tab".
+    This is the single place that decision is made; every caller that
+    dispatches on kind goes through here.
+    """
+    return "pane" if entry.get("kind") == "pane" else "tab"
 
 
 def _state_path(state_dir):
@@ -106,7 +126,12 @@ def locked(state_dir):
 def trim(state, max_entries, max_index=500):
     # type: (Dict[str, Any], int, int) -> Dict[str, Any]
     """Cap `closed` to max_entries and `index` to the max_index most recently
-    refreshed entries. Mutates and returns state."""
+    refreshed entries. Mutates and returns state.
+
+    max_entries applies across both kinds of `closed` entry: the stack is one
+    death-ordered history, so a burst of closed panes is allowed to push old
+    closed tabs out exactly as a burst of closed tabs would.
+    """
     closed = state.get("closed", [])
     if len(closed) > max_entries:
         state["closed"] = closed[:max_entries]

@@ -1,8 +1,8 @@
 id = "undo-close"
 name = "Undo Close"
-version = "0.1.0"
+version = "0.3.0"
 min_herdr_version = "0.7.0"
-description = "Reopen a closed tab, Chrome-style: label, split layout, cwds and position."
+description = "Reopen a closed tab or pane, Chrome-style: label, split layout, cwds, position, and the editor or agent that was running in it."
 platforms = ["linux", "macos"]
 
 [[startup]]
@@ -46,22 +46,22 @@ command = ["python3", "-m", "herdr_undo_close.cli", "record"]
 
 [[actions]]
 id = "reopen-last"
-title = "Reopen closed tab"
-description = "Restores the most recently closed tab: same layout, cwds, and position."
+title = "Reopen closed tab or pane"
+description = "Restores whatever closed last, tab or pane: same layout, cwds, position, and the editor or agent it was running."
 contexts = ["global", "workspace", "tab", "pane"]
 command = ["python3", "-m", "herdr_undo_close.cli", "reopen"]
 
 [[actions]]
 id = "pick"
-title = "Reopen closed tab from list..."
-description = "Opens a popup listing recently closed tabs so you can pick one to restore."
-contexts = ["global", "workspace", "tab"]
+title = "Reopen closed tab or pane from list..."
+description = "Opens a popup listing recently closed tabs and panes so you can pick one to restore."
+contexts = ["global", "workspace", "tab", "pane"]
 command = ["python3", "-m", "herdr_undo_close.cli", "open-picker"]
 
 [[panes]]
 id = "picker"
-title = "Reopen closed tab"
+title = "Reopen closed tab or pane"
 placement = "popup"
-width = "60%"
+width = "80%"
 height = 14
 command = ["python3", "-m", "herdr_undo_close.cli", "pick"]
