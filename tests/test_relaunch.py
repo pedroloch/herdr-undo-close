@@ -134,6 +134,30 @@ class TestBuildAgentIntent(FakeClaudeHome):
             },
         )
 
+    def test_a_path_session_is_used_for_pi(self):
+        pane = {
+            "pane_id": "pA",
+            "cwd": "/proj",
+            "agent": "pi",
+            "agent_session": {"agent": "pi", "kind": "path", "value": "/s/a.jsonl"},
+        }
+        self.assertEqual(
+            relaunch.build_agent_intent(pane),
+            {"kind": "agent", "agent": "pi", "session_id": "/s/a.jsonl"},
+        )
+
+    def test_a_path_session_is_ignored_for_an_agent_that_takes_ids(self):
+        pane = {
+            "pane_id": "pA",
+            "cwd": "/proj",
+            "agent": "codex",
+            "agent_session": {"agent": "codex", "kind": "path", "value": "/s/a.jsonl"},
+        }
+        self.assertEqual(
+            relaunch.build_agent_intent(pane),
+            {"kind": "agent", "agent": "codex", "session_id": None},
+        )
+
     def test_claude_without_a_reported_session_falls_back_to_disk(self):
         # agent.list reports agent_session for opencode but not for claude.
         self.plant_session("/proj", "disk-session", mtime=1000)
@@ -285,6 +309,26 @@ class TestAgentCommand(unittest.TestCase):
     def test_opencode_with_and_without_an_id(self):
         self.assertEqual(relaunch.agent_command("opencode", "ses_1"), ["opencode", "-s", "ses_1"])
         self.assertEqual(relaunch.agent_command("opencode", None), ["opencode"])
+
+    def test_agents_herdr_knows_how_to_resume(self):
+        self.assertEqual(relaunch.agent_command("codex", "c1"), ["codex", "resume", "c1"])
+        self.assertEqual(relaunch.agent_command("codex", None), ["codex"])
+        self.assertEqual(relaunch.agent_command("omp", "o1"), ["omp", "--resume=o1"])
+        self.assertEqual(relaunch.agent_command("copilot", "p1"), ["copilot", "--resume=p1"])
+        self.assertEqual(relaunch.agent_command("cursor", "u1"), ["cursor-agent", "--resume", "u1"])
+        self.assertEqual(relaunch.agent_command("cursor", None), ["cursor-agent"])
+        self.assertEqual(
+            relaunch.agent_command("pi", "/s/a.jsonl"), ["pi", "--session", "/s/a.jsonl"]
+        )
+
+    def test_letta_default_conversation_is_addressed_by_agent_id(self):
+        self.assertEqual(
+            relaunch.agent_command("letta", "default:agent-1"),
+            ["letta", "--conversation", "default", "--agent", "agent-1"],
+        )
+        self.assertEqual(
+            relaunch.agent_command("letta", "conv-1"), ["letta", "--conversation", "conv-1"]
+        )
 
     def test_an_unknown_agent_is_never_guessed_at(self):
         self.assertIsNone(relaunch.agent_command("aider", "abc"))
