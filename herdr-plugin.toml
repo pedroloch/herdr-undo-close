@@ -44,6 +44,14 @@ command = ["python3", "-m", "herdr_undo_close.cli", "record"]
 on = "workspace.closed"
 command = ["python3", "-m", "herdr_undo_close.cli", "record"]
 
+[[events]]
+on = "pane.agent_detected"
+command = ["python3", "-m", "herdr_undo_close.cli", "record"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "-m", "herdr_undo_close.cli", "record"]
+
 [[actions]]
 id = "reopen-last"
 title = "Reopen closed tab or pane"
