@@ -189,8 +189,12 @@ that is still open.
 While a pane is alive, every record pass asks Herdr what it is doing
 (`pane.process_info`, or `agent.list` when the pane holds an agent) and stores
 the answer on the pane's record. It has to happen then: once the pane is closed
-its process is dead and nothing can be asked about it. On restore that answer
-turns into one of three outcomes, and the toast always says which one:
+its process is dead and nothing can be asked about it. That is also why a pass
+runs when Herdr detects an agent in a pane or the agent changes state: starting
+`claude` at an existing pane's prompt fires no tab or pane event, so without
+those hooks the last record would still say "idle shell" when the pane closes.
+On restore that answer turns into one of three outcomes, and the toast always
+says which one:
 
 | Outcome | What you see |
 | --- | --- |
