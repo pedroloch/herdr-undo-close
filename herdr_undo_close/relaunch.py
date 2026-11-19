@@ -42,14 +42,36 @@ from typing import Any, Dict, List, Optional
 READY_TIMEOUT_S = 10.0
 READY_INTERVAL_S = 0.2
 
-# Command-line flag each known agent uses to resume one exact session.
-# Anything not listed is deliberately not guessed at. There is no
-# "continue the most recent one" fallback: with no session id, the agent
-# is launched plainly instead (see agent_command).
-AGENT_RESUME_FLAGS = {
-    "claude": "-r",
-    "opencode": "-s",
-}  # type: Dict[str, str]
+# How each known agent resumes one exact session, "{id}" standing for the
+# session reference. Mirrors the resume commands Herdr itself uses for
+# native session restore (src/agent_resume.rs), keyed by the `agent` name
+# agent.list reports. Anything not listed is deliberately not guessed at.
+# There is no "continue the most recent one" fallback: with no session id,
+# the agent is launched plainly instead (see agent_command).
+AGENT_RESUME_ARGV = {
+    "claude": ["claude", "-r", "{id}"],
+    "opencode": ["opencode", "-s", "{id}"],
+    "codex": ["codex", "resume", "{id}"],
+    "pi": ["pi", "--session", "{id}"],
+    "omp": ["omp", "--resume={id}"],
+    "copilot": ["copilot", "--resume={id}"],
+    "cursor": ["cursor-agent", "--resume", "{id}"],
+    "agy": ["agy", "--conversation", "{id}"],
+    "devin": ["devin", "--resume", "{id}"],
+    "droid": ["droid", "--resume", "{id}"],
+    "grok": ["grok", "--resume", "{id}"],
+    "hermes": ["hermes", "--resume", "{id}"],
+    "qodercli": ["qodercli", "--resume", "{id}"],
+    "qwen": ["qwen", "--resume", "{id}"],
+    "kimi": ["kimi", "--session", "{id}"],
+    "kilo": ["kilo", "--session", "{id}"],
+    "mastracode": ["mastracode", "--thread", "{id}"],
+    "letta": ["letta", "--conversation", "{id}"],
+}  # type: Dict[str, List[str]]
+
+# Agents whose resume flag also takes a session file path, so a
+# kind == "path" session reference can be handed to them as-is.
+PATH_SESSION_AGENTS = {"pi", "omp"}
 
 
 def claude_projects_dir():
@@ -74,9 +96,10 @@ def find_claude_session_id(cwd):
 
     HEURISTIC, and knowingly so: it reads another tool's private layout,
     `~/.claude/projects/<slug>/<session-id>.jsonl`, which claude is free to
-    change. Herdr reports `agent_session` for opencode but not for claude
-    (measured on four live agents), and resuming the right conversation is
-    the whole point of restoring an agent pane, so the lookup is worth it -
+    change. Herdr reports `agent_session` for claude only when its claude
+    integration is installed and current, and resuming the right
+    conversation is the whole point of restoring an agent pane, so the
+    lookup is worth keeping as a fallback -
     but every unexpected shape falls back to None, which simply means a
     plain `claude` launch instead of `claude -r <id>`, not an error.
 
@@ -110,15 +133,20 @@ def reported_session_id(pane_entry):
     # type: (Dict[str, Any]) -> Optional[str]
     """The session id Herdr itself reported for this pane, if any.
 
-    agent.list carries `agent_session` for opencode and not for claude, so
-    this is the good path when it exists and silence otherwise. Only
-    kind == "id" is used: a "path" ref is a filesystem path, not something
-    that can be handed to `-r` or `-s`.
+    agent.list carries `agent_session` for agents with an official Herdr
+    integration, so this is the good path when it exists and silence
+    otherwise. A kind == "path" ref is used only for agents whose resume
+    flag accepts a path (PATH_SESSION_AGENTS); for anyone else a path is
+    not something that can be handed to the flag.
     """
     session = pane_entry.get("agent_session")
     if not isinstance(session, dict):
         return None
-    if session.get("kind") not in (None, "id"):
+    kind = session.get("kind")
+    if kind == "path":
+        if pane_entry.get("agent") not in PATH_SESSION_AGENTS:
+            return None
+    elif kind not in (None, "id"):
         return None
     value = session.get("value")
     return value if isinstance(value, str) and value else None
@@ -228,12 +256,18 @@ def agent_command(agent, session_id):
     directory with no prior conversation, killing the pane instead of
     holding an agent. So a missing session id means a plain launch -
     [agent] - not a guess at "the most recent conversation"."""
-    resume_flag = AGENT_RESUME_FLAGS.get(agent or "")
-    if not resume_flag:
+    template = AGENT_RESUME_ARGV.get(agent or "")
+    if not template:
         return None
-    if session_id:
-        return [agent, resume_flag, session_id]
-    return [agent]
+    if not session_id:
+        return [template[0]]
+    if agent == "letta" and session_id.startswith("default:"):
+        # Letta's default conversation is addressed by its agent id.
+        agent_id = session_id[len("default:"):]
+        if not agent_id:
+            return [template[0]]
+        return ["letta", "--conversation", "default", "--agent", agent_id]
+    return [arg.replace("{id}", session_id) for arg in template]
 
 
 def relaunch_plan(intent, config):
