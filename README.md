@@ -28,8 +28,9 @@ came from, on the same side of the same split, with the same ratio.
 It also brings back what was **running**. A layout-only undo is not much of an
 undo when you open a tab with neovim in it, reopen the tab, and neovim is not
 there: most tabs hold an editor or a coding agent, and that is the point of the
-tab. So an editor comes back on the same file, and a `claude` or `opencode`
-pane comes back resumed on the same conversation. Not everything is re-run -
+tab. So an editor comes back on the same file, and a coding agent pane
+(`claude`, `codex`, `opencode`, `pi` and the other agents Herdr can resume)
+comes back resumed on the same conversation. Not everything is re-run -
 see "What comes back running" for the allowlist and why it exists.
 
 It is still a rebuild, not a live session restore, and the two paths recover
@@ -121,8 +122,7 @@ unknown keys ignored, an invalid value falls back to the default):
 - `restore_process` - master switch for bringing processes back (default true).
   With it off, no pane is ever asked what it is running and every restore is a
   layout-and-cwd restore, exactly like 0.2.x.
-- `relaunch_agents` - resume `claude` and `opencode` conversations (default
-  true). Agents are their own category and are not filtered by
+- `relaunch_agents` - resume agent conversations (default true). Agents are their own category and are not filtered by
   `relaunch_programs`.
 - `relaunch_programs` - basenames of programs that may be re-run. The default is
   the list above; setting your own **replaces** it, and `[]` disables plain
@@ -220,17 +220,29 @@ refused with any database.
 Agents are a separate category, switched by `relaunch_agents`, because resuming
 a conversation is not the same as re-running a command:
 
-- `claude` becomes `claude -r <session-id>`, or plain `claude` when no id is
-  known.
-- `opencode` becomes `opencode -s <session-id>`, or plain `opencode`.
+- an agent Herdr itself can resume comes back with the same command Herdr
+  uses for native session restore: `claude -r <id>`, `codex resume <id>`,
+  `opencode -s <id>`, `pi --session <id-or-path>`, `omp --resume=<id-or-path>`,
+  `copilot --resume=<id>`, `cursor-agent --resume <id>`, `agy --conversation
+  <id>`, `kimi`/`kilo --session <id>`, `mastracode --thread <id>`, `letta
+  --conversation <id>`, and `--resume <id>` for `devin`, `droid`, `grok`,
+  `hermes`, `qodercli` and `qwen`. With no session id known, the agent is
+  launched plainly.
 - any other agent is reported and **not** guessed at. Inventing flags for an
   unknown program is how you end up running something nobody asked for.
 
-Herdr reports a session id for `opencode` (`agent_session`) but not for
-`claude`, so the claude id is read off disk instead: `~/.claude/projects/` holds
-one directory per working directory, named after the path with every `/` turned
-into `-`, and inside it one `<session-id>.jsonl` per conversation. The newest
+The session id comes from `agent_session` in `agent.list`, which Herdr reports
+for agents running with its official integration installed. When claude has
+no reported session (an older integration, or none), its id is read off disk
+instead: `~/.claude/projects/` holds
+one directory per working directory, named after the path with every character
+other than a letter or digit turned into `-`, and inside it one `<session-id>.jsonl` per conversation. The newest
 file wins.
+
+A reported claude session counts only when its log sits under the pane's working
+directory. A `claude -p` run started from inside the pane can report its own
+session as the pane's; when that run worked in another directory, the pane keeps
+the session it had before.
 
 That lookup is a **heuristic** and worth knowing the shape of, because it reads
 another tool's private layout:

@@ -269,6 +269,34 @@ def enrich_with_agents(panes, agents):
             entry["agent_session"] = agent["agent_session"]
 
 
+def keep_owned_claude_sessions(panes, previous_panes):
+    # type: (List[Dict[str, Any]], List[Dict[str, Any]]) -> None
+    """Keep a claude pane's own session when Herdr reports another one.
+
+    Herdr can adopt the session of a nested `claude -p` run as the pane's
+    session (see relaunch.claude_session_in_cwd), and reopening the pane
+    would then resume that run instead. When the reported session has no
+    log under the pane's cwd, keep the one recorded for the pane last pass
+    if that one does; otherwise drop the report so the relaunch falls back
+    to the cwd lookup. Mutates panes."""
+    before = dict((p.get("pane_id"), p) for p in previous_panes)
+    for entry in panes:
+        if entry.get("agent") != "claude":
+            continue
+        cwd = entry.get("cwd")
+        if relaunch.claude_session_in_cwd(relaunch.reported_session_id(entry), cwd):
+            continue
+        if "agent_session" not in entry:
+            continue
+        prev = before.get(entry.get("pane_id")) or {}
+        if prev.get("agent") == "claude" and relaunch.claude_session_in_cwd(
+            relaunch.reported_session_id(prev), cwd
+        ):
+            entry["agent_session"] = prev["agent_session"]
+        else:
+            del entry["agent_session"]
+
+
 def build_live_index(tabs):
     # type: (List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]
     """tabs: tab.list's "tabs" array, already in per-workspace display
@@ -414,6 +442,7 @@ def refresh_live(
     `panes` entries, which are the same order as the tree's pane nodes by
     construction (see flatten_panes), so a restore can zip the two.
     """
+    previous_panes = [p for rec in state["index"].values() for p in rec.get("panes") or []]
     for tab_id, live in live_ids.items():
         try:
             result = api.call("layout.export", {"tab_id": tab_id})
@@ -434,6 +463,7 @@ def refresh_live(
 
         enrich_with_terminals(panes, panes_by_id or {})
         enrich_with_agents(panes, agents)
+        keep_owned_claude_sessions(panes, previous_panes)
         if restore_process:
             # Last, because an intent is decided from the agent and the cwd
             # the two enrichers above just filled in.

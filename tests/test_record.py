@@ -442,6 +442,43 @@ class TestRefreshLive(ClaudeHomeIsolated, unittest.TestCase):
             self.assertNotIn("relaunch", pane)
 
 
+class TestKeepOwnedClaudeSessions(ClaudeHomeIsolated, unittest.TestCase):
+    def plant(self, cwd, session_id):
+        directory = os.path.join(relaunch.claude_projects_dir(), relaunch.project_slug(cwd))
+        os.makedirs(directory, exist_ok=True)
+        open(os.path.join(directory, session_id + ".jsonl"), "w").close()
+
+    def refresh(self, state, session_id):
+        api = FakeApi({"layout.export": {"layout": {"root": pane_node(pane_id="pA", cwd="/proj")}}})
+        live_ids = {"w1:t1": {"workspace_id": "w1", "label": "probe", "index": 0}}
+        agents = [{"pane_id": "pA", "agent": "claude", "agent_session": {"kind": "id", "value": session_id}}]
+        record.refresh_live(state, api, live_ids, {}, agents=agents, now_ms=1)
+        return state["index"]["w1:t1"]["panes"][0]
+
+    def test_a_nested_session_from_another_directory_keeps_the_panes_own(self):
+        self.plant("/proj", "mine")
+        self.plant("/worktree", "nested")
+        state = {"index": {}, "closed": []}
+        self.refresh(state, "mine")
+        pane = self.refresh(state, "nested")
+        self.assertEqual(pane["agent_session"]["value"], "mine")
+        self.assertEqual(pane["relaunch"]["session_id"], "mine")
+
+    def test_a_new_session_in_the_panes_directory_replaces_the_old_one(self):
+        self.plant("/proj", "mine")
+        self.plant("/proj", "after-clear")
+        state = {"index": {}, "closed": []}
+        self.refresh(state, "mine")
+        pane = self.refresh(state, "after-clear")
+        self.assertEqual(pane["agent_session"]["value"], "after-clear")
+
+    def test_a_foreign_session_with_nothing_to_keep_is_dropped(self):
+        self.plant("/worktree", "nested")
+        pane = self.refresh({"index": {}, "closed": []}, "nested")
+        self.assertNotIn("agent_session", pane)
+        self.assertIsNone(pane["relaunch"]["session_id"])
+
+
 class TestFindPaneNode(unittest.TestCase):
     def setUp(self):
         # split(right,0.4, A, split(down,0.7, B, C))
