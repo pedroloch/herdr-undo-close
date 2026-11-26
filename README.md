@@ -235,9 +235,14 @@ The session id comes from `agent_session` in `agent.list`, which Herdr reports
 for agents running with its official integration installed. When claude has
 no reported session (an older integration, or none), its id is read off disk
 instead: `~/.claude/projects/` holds
-one directory per working directory, named after the path with every `/` turned
-into `-`, and inside it one `<session-id>.jsonl` per conversation. The newest
+one directory per working directory, named after the path with every character
+other than a letter or digit turned into `-`, and inside it one `<session-id>.jsonl` per conversation. The newest
 file wins.
+
+A reported claude session counts only when its log sits under the pane's working
+directory. A `claude -p` run started from inside the pane can report its own
+session as the pane's; when that run worked in another directory, the pane keeps
+the session it had before.
 
 That lookup is a **heuristic** and worth knowing the shape of, because it reads
 another tool's private layout:

@@ -79,6 +79,19 @@ class TestProjectSlug(unittest.TestCase):
     def test_existing_dashes_are_left_alone(self):
         self.assertEqual(relaunch.project_slug("/Users/pedro/my-repo"), "-Users-pedro-my-repo")
 
+    def test_dots_become_dashes(self):
+        self.assertEqual(relaunch.project_slug("/home/u/.cache/repro"), "-home-u--cache-repro")
+
+
+class TestClaudeSessionInCwd(FakeClaudeHome):
+    def test_true_only_for_a_log_under_the_cwd(self):
+        self.plant_session("/proj", "mine", 1)
+        self.plant_session("/elsewhere", "nested", 1)
+        self.assertTrue(relaunch.claude_session_in_cwd("mine", "/proj"))
+        self.assertFalse(relaunch.claude_session_in_cwd("nested", "/proj"))
+        self.assertFalse(relaunch.claude_session_in_cwd(None, "/proj"))
+        self.assertFalse(relaunch.claude_session_in_cwd("mine", None))
+
 
 class TestFindClaudeSessionId(FakeClaudeHome):
     def test_finds_the_session_for_the_right_slug(self):

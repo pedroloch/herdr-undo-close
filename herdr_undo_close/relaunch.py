@@ -33,6 +33,7 @@ it from the same plan dict:
 """
 
 import os
+import re
 import shlex
 import time
 from typing import Any, Dict, List, Optional
@@ -85,9 +86,25 @@ def claude_projects_dir():
 def project_slug(cwd):
     # type: (str) -> str
     """claude's directory name for a working directory: the absolute path
-    with every "/" turned into "-". Measured: /private/tmp/x/resume-test
-    became -private-tmp-x-resume-test."""
-    return cwd.replace("/", "-")
+    with every character other than a letter or digit turned into "-".
+    Measured: /private/tmp/x/resume-test became -private-tmp-x-resume-test,
+    and /home/u/.cache/repro became -home-u--cache-repro."""
+    return re.sub(r"[^A-Za-z0-9]", "-", cwd)
+
+
+def claude_session_in_cwd(session_id, cwd):
+    # type: (Optional[str], Optional[str]) -> bool
+    """True when claude keeps session_id's log under cwd's project directory.
+
+    A `claude -p` run started from inside a pane inherits the pane's Herdr
+    environment, so Herdr can adopt that run's session as the pane's own.
+    The run's log sits under whatever directory it ran in, which tells the
+    two apart when that directory differs from the pane's.
+    """
+    if not session_id or not cwd or not isinstance(cwd, str):
+        return False
+    path = os.path.join(claude_projects_dir(), project_slug(cwd), session_id + ".jsonl")
+    return os.path.isfile(path)
 
 
 def find_claude_session_id(cwd):
